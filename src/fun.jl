@@ -19,7 +19,7 @@ function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
         if (norm(inclement, Inf) ≤ tol * norm(Fₛ, Inf))
             ω(sr) = max( [abs( f⁽ˢ⁺ʳ⁾(λᵢ) ) for λᵢ in λ]  )
             Δ = max([ω(s+r)/factorial(r) for r in 0:n-1])
-            if μ*Δ*norm(P, Inf) ≤ tol*norm(Fₛ, Inf)
+            if (μ*Δ*norm(P, Inf) ≤ tol*norm(Fₛ, Inf))
                 break
             end
         end
@@ -28,16 +28,35 @@ function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
 end
 
 function BlockPattern{TT}(T::Matrix{TT}, λ::Array{TT,1}, δ::TT=0.1)
-    p = 1
-    Sₚ = Set{TT}
+    p  = 1
+    Sps = Set{TT}
     n  = LinAlg.checksquare(T)
+    Sp = TT[]
+    Sps = Array(Array{TT, 1}, 1)
+    Sqs = Array(Array{TT, 1}, n)
+    push!(Sps, Sp)
     for i in 1:n
         λᵢ = λ[i]
-        if λᵢ ∉ Sₚ
-            push!(Sₚ, λᵢ)
+        if (λᵢ ∉  [Sp for Sp in Sps[1:p-1]])
+            push!(Sp, λᵢ)
+            p += 1
+            Sp = TT[]
         end
+        Sqs[i] = Sps[find(λᵢ ∈ Sp for Sp in Sps)]
         for j = i + 1:n
             λⱼ = λ[j]
-            if λⱼ ∉ Sₚ
-                if abs(λᵢ - λⱼ) ≤ δ
-                    if λⱼ 
+            if (λⱼ ∉  [S for S in Sq])
+                if (abs(λᵢ - λⱼ) ≤ δ)
+                    if (λⱼ∉ [S for S in Sqs[1:p-1]])
+                        push!(Sqs[i], λⱼ)
+                    else
+                        # Move the element of Sₘₐₓ(qᵢ,qⱼ) to Sₘᵢₓ(qᵢ,qⱼ)
+                        # Reduce by 1 the indices of sets Sq for q > max(qᵢ,qⱼ)
+                        p -= 1
+                    end
+                end
+            end
+        end
+    end
+    Sps, Sps
+end

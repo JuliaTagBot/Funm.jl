@@ -1,3 +1,3 @@
 # Funm.jl
 
-A Julia package for compute matrix functions.
+A Julia package for computing matrix functions.
