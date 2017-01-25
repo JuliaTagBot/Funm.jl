@@ -1,6 +1,15 @@
+using  ForwardDiff
 # σ = n^(-1) * sum(λ[i]), M = T - σ * Iₙ, tol = u
 # μ = ||y||, where y solves (I - |N|)y = e and N is strivtly 
 # upper triangular part of T.
+
+function _diff(f::Function, order::Int)
+    if order == 1
+        df = t -> ForwardDiff.derivative(f, t)
+    else
+        dff = t -> ForwardDiff.derivative(_diff(f, order-1), t)
+    end
+end
 
 function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
     n  = LinAlg.checksquare(T)
@@ -13,7 +22,7 @@ function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
     s  = 1
     while true
         #TODO Use an effective way to take the derivative of the function f. 
-        inclement = f⁽ˢ⁾(σ) * P
+        inclement = _diff(f, s)(σ) * P
         Fₛ+= inclement
         P = P * M / (s+1)
         if (norm(inclement, Inf) ≤ tol * norm(Fₛ, Inf))
@@ -23,6 +32,7 @@ function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
                 break
             end
         end
+        s+=1
     end
     Fₛ
 end
@@ -51,6 +61,7 @@ function BlockPattern{TT}(T::Matrix{TT}, λ::Array{TT,1}, δ::TT=0.1)
                         push!(Sqs[i], λⱼ)
                     else
                         # Move the element of Sₘₐₓ(qᵢ,qⱼ) to Sₘᵢₓ(qᵢ,qⱼ)
+                        
                         # Reduce by 1 the indices of sets Sq for q > max(qᵢ,qⱼ)
                         p -= 1
                     end
