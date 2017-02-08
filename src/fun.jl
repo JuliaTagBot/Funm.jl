@@ -3,14 +3,6 @@ using  ForwardDiff
 # μ = ||y||, where y solves (I - |N|)y = e and N is strivtly 
 # upper triangular part of T.
 
-# function _diff(f::Function, order::Int)
-#     if order == 1
-#         df = t -> ForwardDiff.derivative(f, t)
-#     else
-#         dff = t -> ForwardDiff.derivative(_diff(f, order-1), t)
-#     end
-# end
-
 macro nderivs(f, order)
    dfs = [Symbol(string(:df, i)) for i in 1:order]
    block = Expr(:block)
@@ -26,14 +18,6 @@ macro nderivs(f, order)
        end
    end
 end
-
-# function ConstructDual{T}(x::T, n)
-#    d = Dual(x, one(x))
-#    for i = 1:n-1
-#        d = Dual(d, one(x))
-#    end
-#    d
-# end
 
 function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
     n  = LinAlg.checksquare(T)
@@ -104,19 +88,38 @@ function BlockPattern{TT}(T::Matrix{TT}, λ::Array{TT,1}, δ::TT=0.1)
     Sqs, Sqs
 end
 
-# Nested Dual Numbers
-# Dual(
-# 	Dual(
-# 		Dual(
-# 			Dual(0.8414709848078965,0.5403023058681398),
-# 			Dual(0.5403023058681398,-0.8414709848078965)),
-# 		Dual(
-# 			Dual(0.5403023058681398,-0.8414709848078965),
-# 			Dual(-0.8414709848078965,-0.5403023058681398))),
-# 	Dual(
-# 		Dual(
-# 			Dual(0.5403023058681398,-0.8414709848078965),
-# 			Dual(-0.8414709848078965,-0.5403023058681398)),
-# 		Dual(
-# 			Dual(-0.8414709848078965,-0.5403023058681398),
-# 			Dual(-0.5403023058681398,0.8414709848078965))))
+function ObtainingPermutation(q::Vector{Int})
+    pre(j) = find(λ==j, q)
+    ϕ(j) = length(pre(j))
+    k = length(q)
+    β = 1
+    g = Array(Float64, k)
+    for i in 1:k
+        #FIXME
+        g[i] = sum(j)/ϕ(i)
+    end
+    y = sortperm(g, rev=true)
+    for i in y
+        if q[β:β+ϕ(i)-1] .≠ i
+            f = pre(i)
+            g = β:β+ϕ(i)-1
+            # Concatenate g(f~=g) and f(f~=g) to the end of ILST and IFST, respectively.
+            # Let v = β:f[end] and delete all elements of v that are elements f.
+            v = β:f[end]
+            v = setdiff(v, f)
+            q[g[end]+1:f[end]] = q[v]
+            q[g] = ones(eltype(q), length(g))*i
+            β = β + ϕ(i)
+        end
+    end
+    ILST, IFST
+end
+
+function funm{T}(f::Function, A::Matrix{T})
+    schur = schurfact(A)
+    if isdiag(schur[:Schur])
+        return schur[:vectors] * schur[:Schur] * transpose(schur[:Schur])
+    end
+    
+end
+
