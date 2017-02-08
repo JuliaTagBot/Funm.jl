@@ -101,7 +101,7 @@ function BlockPattern{TT}(T::Matrix{TT}, λ::Array{TT,1}, δ::TT=0.1)
             end
         end
     end
-    Sps, Sqs
+    Sqs, Sqs
 end
 
 # Nested Dual Numbers
