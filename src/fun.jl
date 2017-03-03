@@ -3,6 +3,23 @@ using  ForwardDiff
 # μ = ||y||, where y solves (I - |N|)y = e and N is strivtly 
 # upper triangular part of T.
 
+function _diff(f::Function, order::Int)
+    if order == 1
+        df = t -> ForwardDiff.derivative(f, t)
+    else
+        dff = t -> ForwardDiff.derivative(_diff(f, order-1), t)
+    end
+end
+
+@generated function _diff_{N, T}(f, ::Type{Val{N}}, ::Type{Val{T}})
+    if N==1
+        df = ForwardDiff.derivative(f, Val{T})
+    else
+        df = ForwardDiff.derivative(_diff_(f, Val{N-1}), Val{T})
+    end
+    println(df)
+end
+
 macro nderivs(f, order)
    dfs = [Symbol(string(:df, i)) for i in 1:order]
    block = Expr(:block)
