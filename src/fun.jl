@@ -1,23 +1,24 @@
-using  ForwardDiff
+# using  ForwardDiff
 # σ = n^(-1) * sum(λ[i]), M = T - σ * Iₙ, tol = u
 # μ = ||y||, where y solves (I - |N|)y = e and N is strivtly 
 # upper triangular part of T.
 
-function _diff(f::Function, order::Int)
-    if order == 1
-        df = t -> ForwardDiff.derivative(f, t)
-    else
-        dff = t -> ForwardDiff.derivative(_diff(f, order-1), t)
-    end
-end
+# Testing mysin
+# Derivative of sin
+mysin(x, a) = mysin(x, Val{a%4})
+mysin(x, ::Type{Val{0}}) = sin(x)
+mysin(x, ::Type{Val{1}}) = cos(x)
+mysin(x, ::Type{Val{2}}) = -sin(x)
+mysin(x, ::Type{Val{3}}) = -cos(x)
 
-@generated function _diff_{N, T}(f, ::Type{Val{N}}, ::Type{Val{T}})
-    if N==1
-        df = ForwardDiff.derivative(f, Val{T})
+
+@generated function __diff__{N}(f, ::Type{Val{N}})
+    if N == 1
+        Expr = :(t -> ForwardDiff.derivative(f, t))
     else
-        df = ForwardDiff.derivative(_diff_(f, Val{N-1}), Val{T})
+        Expr = :(t -> ForwardDiff.derivative($(__diff__(f, Val{N-1})), t))
     end
-    println(df)
+    Expr
 end
 
 macro nderivs(f, order)
@@ -36,35 +37,45 @@ macro nderivs(f, order)
    end
 end
 
-function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
+function AtomicBlock{TT}(fun::Function, T::UpperTriangular{TT,Array{TT,2}}, tol=eps(), maxIt=500)
     n  = LinAlg.checksquare(T)
-    # TODO: Eigenvalues
+    if n==1
+        return (fun(T, 0), 1)
+    end
+    # TODO: Eigenvalues?
     # λ  = eigvals(T)
-    σ  = n^(-1) * sum(λ)
+    σ  = trace(T)/n
     M  = T - σ * eye(n)
-    Fₛ = f(σ) * eye(n)
+    Fₛ = fun(σ, 0) * eye(n)
     μ  = norm(T, Inf)
     P  = M
-    s  = 1
+    max_der = 1
     # diff(n) = _diff(f, n)(σ)
-    diff = @nderivs f 7
-    ds  = diff(σ)
-    while true
-        inclement = ds[s+1] * P
+    # diff_ = @nderivs f 7
+    # ds  = diff_(σ)
+    for s = 1:maxIt
+        @show s
+        inclement = fun(σ, s) * P
+        rel_diff = norm(inclement, Inf)/(tol+norm(Fₛ, Inf))
         Fₛ+= inclement
         P = P * M / (s+1)
-        if (norm(inclement, Inf) ≤ tol * norm(Fₛ, Inf))
-            ω(sr) = max( [abs( ds[ sr ] ) for λᵢ in λ]  )
-            Δ = max([ω(s+r)/factorial(r) for r in 0:n-1])
-            if (μ*Δ*norm(P, Inf) ≤ tol*norm(Fₛ, Inf))
-                break
+        if rel_diff <= tol
+            # Approximate the maximum of derivatives in convex set containing
+            # eigenvalues by maximum of derivatives at eigenvalues.
+            f_der_max = [norm(fun.(diag(T), j), Inf) for j in max_der:s+n-1]
+            max_der = s+n
+            Ω = 0;
+            metaΩ = maximum([f_der_max[s+j]/factorial(j) for j in 0:n-1])
+            Ω = max(Ω, metaΩ)
+            # ω(sr) = max( [abs( ds[ sr ] ) for λᵢ in λ]  )
+            # Δ = max([ω(s+r)/factorial(r) for r in 0:n-1])
+            if (μ*Ω*norm(P, Inf) <= tol*norm(Fₛ, Inf))
+                return (Fₛ, s)
             end
         end
-        s+=1
     end
-    Fₛ
+    println("ERROR!")
 end
-
 
 
 function blocking{T<:Number, F<:AbstractFloat}(A::UpperTriangular{T, Matrix{T}}; delta::F=0.1)
@@ -165,13 +176,64 @@ function funm(U, Schur, fun; delta=0.1, tol=eps(), m=Int[], prnt=false)
 
     M, ind, n_swaps = swapping(m)
     m = length(ind)
-    F = zeros(n)
+    F = zeros(n, n)
     n_calls = size(M, 1)
     if n_calls > 0
         U, T = LAPACK.trexc!('V', M[1], M[2], Schur, U)
     end
     #TODO: Add atom evaluation
-    U*F*U'
+    for col=1:m
+        j = ind[col]
+        F[j, j], n_terms = AtomicBlock(fun, F[j,j], tol)
+        terms[col] = n_terms
+
+        for row=cow-1:-1:1
+            i = ind[row]
+            if length(i) == 1 && length(j) == 1
+                # Scalar case
+                k = i+1:j-1
+                meta = T[i,j] * (F[i,i] - F[j,j]) + F[i,k]*T[k,j] - T[i,k]*F[k,j]
+                F[i, j] = meta/(T[i,i]-T[j,j])
+            else
+                k = vcat(ind[row+1:col-1])
+                rhs = F[i,i]*T[i,j] - T[i,j]*F[j,j] + F[i,k]*T[k,j] - T[i,k]*F[k,j]
+                F[i,j] = sylvester(T[i,i], -T[j,j], rhs)
+            end
+        end
+    end
+    F = U*F*U'
+end
+
+
+#=
+
+function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
+    n  = LinAlg.checksquare(T)
+    # TODO: Eigenvalues
+    # λ  = eigvals(T)
+    σ  = n^(-1) * sum(λ)
+    M  = T - σ * eye(n)
+    Fₛ = f(σ) * eye(n)
+    μ  = norm(T, Inf)
+    P  = M
+    s  = 1
+    # diff(n) = _diff(f, n)(σ)
+    diff_ = @nderivs f 7
+    ds  = diff_(σ)
+    while true
+        inclement = ds[s+1] * P
+        Fₛ+= inclement
+        P = P * M / (s+1)
+        if (norm(inclement, Inf) ≤ tol * norm(Fₛ, Inf))
+            ω(sr) = max( [abs( ds[ sr ] ) for λᵢ in λ]  )
+            Δ = max([ω(s+r)/factorial(r) for r in 0:n-1])
+            if (μ*Δ*norm(P, Inf) ≤ tol*norm(Fₛ, Inf))
+                break
+            end
+        end
+        s+=1
+    end
+    Fₛ
 end
 
 function fun_atom{TT<:Number}(T::Matrix{TT}, fun; tol=eps(), prnt=false)
@@ -182,12 +244,6 @@ function fun_atom{TT<:Number}(T::Matrix{TT}, fun; tol=eps(), prnt=false)
     lambda = trace(T)/n
     F = eye(n)*fun(lambda)
 end
-
-
-
-
-
-#=
 
 function BlockPattern{TT}(T::Matrix{TT}, λ::Array{TT,1}, δ::TT=0.1)
     p  = 1
