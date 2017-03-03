@@ -48,6 +48,130 @@ function AtomicBlock{TT}(f::Function, T::Matrix{TT}, tol::TT, λ::Array{TT,1})
     Fₛ
 end
 
+
+
+function blocking{T<:Number, F<:AbstractFloat}(A::UpperTriangular{T, Matrix{T}}; delta::F=0.1)
+    a    = diag(A)
+    n    = length(a)
+    m    = zeros(Int, n)
+    maxM = 0
+
+    for i = 1:n
+
+        if m[i] == 0
+            m[i] = maxM + 1
+            maxM += 1
+        end
+
+        for j = i+1:n
+            if m[i] .!= m[j]
+                if abs(a[i]-a[j]) <= delta
+                    if m[j] == 0
+                        m[j] = m[i]
+                    else
+                        p = max(m[i], m[j])
+                        q = min(m[i], m[j])
+                        if m==p
+                            m[1] = q
+                        elseif m>p
+                            m[1] -= 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    m
+end
+
+function reshape_M(M)
+    len = length(M)
+    A = Array(Int, len, 2)
+    for i in 1:len
+        A[i,:] = M[i]
+    end
+    A
+end
+
+function swapping(m)
+    mmax = maximum(m)
+    M = Array(Array{Int,1},0)
+    ind = Array(Array{Int,1},0)
+    h = zeros(Int, mmax)
+    g = zeros(Int, mmax)
+
+    for i = 1:mmax
+        p = find(x -> x==i, m)
+        h[i] = length(p)
+        g[i] = sum(p)/h[i]
+    end
+    
+    y = sort(g)
+    mdone = 1
+    for i = y
+        if any(x->x!=i, m[mdone:mdone+h[i]-1])
+            f = find(x -> x==i, m)
+            g = mdone:mdone+h[i]-1
+            ff = setdiff(f, g)
+            gg = setdiff(g, f)
+            v = mdone-1 + find(x -> x!=i, m[mdone:f[end]])
+            push!(M, vcat(ff, gg))
+            m[g[end]+1:f[end]] = m[v]
+            m[g] = i*ones(Int, 1,h[i])
+            @show push!(ind, collect(mdone:mdone+h[i]-1))
+            mdone += h[i]
+        else
+            push!(ind, collect(mdone:mdone+h[i]-1))
+        end
+    end
+    A = reshape_M(M)
+    A, ind, sum(abs(diff(A)))
+end
+
+funm{T<:Number}(A::UpperTriangular{T, Matrix{T}}, fun::Function; kwarg...) = funm(eye(A), A, fun; kwarg...)
+function funm{T<:Number}(A::Matrix{T}, fun::Function; kwarg...)
+    Schur, U = schur(A)
+    funm(U, Schur, fun; kwarg...)
+end
+
+function funm(U, Schur, fun; delta=0.1, tol=eps(), m=Int[], prnt=false)
+    n = LinAlg.checksquare(A)
+    if isequal(Schur, triu(Schur))
+        F = U*fun.(Diagonal(Schur))*U'
+        # n_swaps = 0; n_call = 0; terms = 0; ind = collect(1:n)
+        return F
+    end
+
+    if isempty(m)
+        m = blocking(Schur, delta)
+    end
+
+    M, ind, n_swaps = swapping(m)
+    m = length(ind)
+    F = zeros(n)
+    n_calls = size(M, 1)
+    if n_calls > 0
+        U, T = LAPACK.trexc!('V', M[1], M[2], Schur, U)
+    end
+    #TODO: Add atom evaluation
+    U*F*U'
+end
+
+function fun_atom{TT<:Number}(T::Matrix{TT}, fun; tol=eps(), prnt=false)
+    itmax = 500
+    n = LinAlg.checksquare(A)
+    n==1 && (return fun(T), 1)
+
+    lambda = trace(T)/n
+    F = eye(n)*fun(lambda)
+end
+
+
+
+
+
+#=
+
 function BlockPattern{TT}(T::Matrix{TT}, λ::Array{TT,1}, δ::TT=0.1)
     p  = 1
     n  = LinAlg.checksquare(T)
@@ -95,7 +219,6 @@ function ObtainingPermutation(q::Vector{Int})
     β = 1
     g = Array(Float64, k)
     for i in 1:k
-        #FIXME
         g[i] = sum(j)/ϕ(i)
     end
     y = sortperm(g, rev=true)
@@ -122,4 +245,4 @@ function funm{T}(f::Function, A::Matrix{T})
     end
     
 end
-
+=#
