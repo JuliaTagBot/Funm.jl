@@ -1,4 +1,14 @@
 # using  ForwardDiff
+
+# Function of a symmetric or Hermitian matrix by diagonalization
+
+funm{T}(fun::Function, A::Matrix{T}) = ishermitian(A) ? funm(fun, A, Val{true}) : funm(fun, A, Val{false})
+
+function funm{T}(fun::Function, A::Matrix{T}, ::Type{Val{true}})
+    F = eigfact(A)
+    F[:vectors] * Diagonal(fun.(F[:values])) * F[:vectors]'
+end
+
 # σ = n^(-1) * sum(λ[i]), M = T - σ * Iₙ, tol = u
 # μ = ||y||, where y solves (I - |N|)y = e and N is strivtly 
 # upper triangular part of T.
@@ -156,13 +166,13 @@ function swapping(m)
     A, ind, sum(abs(diff(A)))
 end
 
-funm{T<:Number}(A::UpperTriangular{T, Matrix{T}}, fun::Function; kwarg...) = funm(eye(A), A, fun; kwarg...)
-function funm{T<:Number}(A::Matrix{T}, fun::Function; kwarg...)
+funm{T<:Number}(A::UpperTriangular{T, Matrix{T}}, fun::Function, Val{false}; kwarg...) = funm(eye(A), A, fun, Val{false}; kwarg...)
+function funm{T<:Number}(A::Matrix{T}, fun::Function, Val{false}; kwarg...)
     Schur, U = schur(A)
     funm(U, Schur, fun; kwarg...)
 end
 
-function funm(U, Schur, fun; delta=0.1, tol=eps(), m=Int[], prnt=false)
+function funm(U, Schur, fun, Val{false}; delta=0.1, tol=eps(), m=Int[], prnt=false)
     n = LinAlg.checksquare(A)
     if isequal(Schur, triu(Schur))
         F = U*fun.(Diagonal(Schur))*U'
